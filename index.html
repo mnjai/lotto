@@ -1,0 +1,429 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Advanced Lottery Generator</title>
+    <style>
+        body { 
+            font-family: Arial, sans-serif; 
+            max-width: 800px; 
+            margin: 20px auto; 
+            padding: 20px;
+            background-color: #f0f0f0;
+        }
+        .container {
+            background: white;
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 0 10px rgba(0,0,0,0.1);
+        }
+        button {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            margin: 10px 0;
+        }
+        .primary-btn {
+            background: #4CAF50;
+            color: white;
+        }
+        .info-btn {
+            background: #17a2b8;
+            color: white;
+        }
+        .danger-btn {
+            background: #dc3545;
+            color: white;
+        }
+        .number-input {
+            width: 50px;
+            margin: 0 5px;
+            padding: 5px;
+        }
+        .special-input {
+            background: #fff3cd;
+        }
+        .set-input {
+            margin: 10px 0;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+        }
+        .history-panel, .generated-panel {
+            margin: 15px 0;
+            padding: 10px;
+            border-radius: 5px;
+        }
+        .history-panel {
+            background: #fff3cd;
+        }
+        .generated-panel {
+            background: #e8f5e9;
+            max-height: 400px;
+            overflow-y: auto;
+        }
+        .set-display {
+            margin: 5px 0;
+            padding: 8px;
+            background: white;
+            border-radius: 4px;
+        }
+        .stats {
+            margin: 15px 0;
+            padding: 10px;
+            background: #e3f2fd;
+            border-radius: 5px;
+        }
+        .strategy-tag {
+            font-size: 0.8em;
+            color: #666;
+            margin-top: 5px;
+        }
+        .error {
+            color: #dc3545;
+            margin: 10px 0;
+            padding: 10px;
+            background: #f8d7da;
+            border-radius: 4px;
+            display: none;
+        }
+        .invalid-input {
+            border: 2px solid #dc3545 !important;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h2>Advanced Lottery Generator</h2>
+        <div id="errorMessage" class="error"></div>
+        
+        <div class="stats">
+            <div class="history-count">
+                Historical Sets: <span id="historyCount">0</span>
+                <button class="info-btn" onclick="toggleHistory()">Show/Hide History</button>
+                <button class="danger-btn" onclick="resetHistory()">Reset History</button>
+            </div>
+            <div class="generated-count">
+                Generated Sets: <span id="generatedCount">0</span>
+                <button class="info-btn" onclick="toggleGenerated()">Show/Hide Generated</button>
+                <button class="danger-btn" onclick="resetGenerated()">Reset Generated</button>
+            </div>
+        </div>
+
+        <div id="historyPanel" class="history-panel" style="display: none;"></div>
+        <div id="generatedResults" class="generated-panel" style="display: none;"></div>
+
+        <div id="inputSection">
+            <h3>Input Previous Sets:</h3>
+            <div id="inputContainer"></div>
+            <button class="primary-btn" onclick="addSetInput()">Add New Set</button>
+        </div>
+
+        <button class="primary-btn" onclick="generateSets()">Generate New Sets</button>
+    </div>
+
+    <script>
+        let storedData = JSON.parse(localStorage.getItem('lotteryData') || '{"history": [], "generated": []}');
+        
+        // Migrate old data format if needed
+        if(storedData.generated.length > 0 && !storedData.generated[0].numbers) {
+            storedData.generated = storedData.generated.map(set => ({
+                numbers: JSON.parse(set),
+                timestamp: Date.now(),
+                strategy: "Legacy Set"
+            }));
+            localStorage.setItem('lotteryData', JSON.stringify(storedData));
+        }
+
+        function initializeCounts() {
+            document.getElementById('historyCount').textContent = storedData.history.length;
+            document.getElementById('generatedCount').textContent = storedData.generated.length;
+        }
+
+        function addSetInput() {
+            const container = document.getElementById('inputContainer');
+            const setDiv = document.createElement('div');
+            setDiv.className = 'set-input';
+            setDiv.innerHTML = `
+                Set ${container.children.length + 1}:
+                ${Array.from({length: 5}, (_, i) => 
+                    `<input type="number" min="1" max="35" class="number-input" placeholder="Main ${i+1}">`
+                ).join('')}
+                <input type="number" min="1" max="10" class="number-input special-input" placeholder="Special">
+                <button onclick="this.parentElement.remove()">❌</button>
+            `;
+            container.appendChild(setDiv);
+        }
+
+        function validateMainNumbers(numbers) {
+            const errors = [];
+            const uniqueNumbers = new Set(numbers);
+            
+            if(numbers.length !== 5) errors.push("Exactly 5 main numbers required");
+            if(uniqueNumbers.size !== 5) errors.push("Duplicate main numbers found");
+            
+            numbers.forEach(n => {
+                if(n < 1 || n > 35) errors.push(`Main number ${n} out of range (1-35)`);
+            });
+
+            return errors;
+        }
+
+        function validateSpecialNumber(number) {
+            if(number < 1 || number > 10) return "Special number must be between 1-10";
+            return null;
+        }
+
+        function validateAllInputs() {
+            const errorDiv = document.getElementById('errorMessage');
+            errorDiv.style.display = 'none';
+            document.querySelectorAll('.invalid-input').forEach(el => el.classList.remove('invalid-input'));
+            
+            let hasErrors = false;
+            const validationErrors = [];
+            const inputSets = document.querySelectorAll('.set-input');
+
+            inputSets.forEach((set, index) => {
+                const mainInputs = Array.from(set.querySelectorAll('input:not(.special-input)'));
+                const specialInput = set.querySelector('.special-input');
+                let setErrors = [];
+
+                const mainNumbers = mainInputs.map(input => {
+                    const value = parseInt(input.value);
+                    if(isNaN(value)) {
+                        setErrors.push(`Main number #${mainInputs.indexOf(input)+1} is invalid`);
+                        input.classList.add('invalid-input');
+                    }
+                    return value;
+                });
+
+                const mainValidation = validateMainNumbers(mainNumbers);
+                if(mainValidation.length > 0) {
+                    mainInputs.forEach(input => input.classList.add('invalid-input'));
+                    setErrors.push(...mainValidation);
+                }
+
+                const specialNumber = parseInt(specialInput.value);
+                if(isNaN(specialNumber)) {
+                    setErrors.push("Special number is required");
+                    specialInput.classList.add('invalid-input');
+                } else {
+                    const specialError = validateSpecialNumber(specialNumber);
+                    if(specialError) {
+                        setErrors.push(specialError);
+                        specialInput.classList.add('invalid-input');
+                    }
+                }
+
+                if(setErrors.length > 0) {
+                    hasErrors = true;
+                    validationErrors.push(`Set ${index + 1}: ${setErrors.join(', ')}`);
+                }
+            });
+
+            if(hasErrors) {
+                errorDiv.innerHTML = `
+                    <strong>Validation Errors:</strong>
+                    <ul>${validationErrors.map(e => `<li>${e}</li>`).join('')}</ul>
+                `;
+                errorDiv.style.display = 'block';
+            }
+
+            return !hasErrors;
+        }
+
+        function analyzeNumbers() {
+            const analysis = { main: {}, special: {}, coOccurrence: {} };
+            
+            storedData.history.forEach(([main, special]) => {
+                main.forEach(n => analysis.main[n] = (analysis.main[n] || 0) + 1);
+                analysis.special[special] = (analysis.special[special] || 0) + 1;
+                
+                main.forEach(m => {
+                    analysis.coOccurrence[m] = analysis.coOccurrence[m] || {};
+                    analysis.coOccurrence[m][special] = (analysis.coOccurrence[m][special] || 0) + 1;
+                });
+            });
+
+            return analysis;
+        }
+
+        function generateSets() {
+            if(!validateAllInputs()) return;
+
+            const newSets = [];
+            document.querySelectorAll('.set-input').forEach(set => {
+                const main = Array.from(set.querySelectorAll('input:not(.special-input)'))
+                                .map(i => parseInt(i.value));
+                const special = parseInt(set.querySelector('.special-input').value);
+                newSets.push([[...new Set(main)].sort((a,b) => a-b), special]);
+            });
+
+            storedData.history = [...new Set([
+                ...storedData.history.map(JSON.stringify),
+                ...newSets.map(JSON.stringify)
+            ])].map(JSON.parse);
+            
+            const analysis = analyzeNumbers();
+            const strategies = [
+                { name: "Hot Main Numbers", fn: hotMainStrategy },
+                { name: "Balanced Selection", fn: balancedStrategy },
+                { name: "Cold Special Number", fn: coldSpecialStrategy },
+                { name: "Co-occurrence Based", fn: coOccurrenceStrategy },
+                { name: "Random Mix", fn: randomMixStrategy }
+            ];
+
+            const newCombinations = [];
+            while(newCombinations.length < 5) {
+                const strategy = strategies[newCombinations.length % strategies.length];
+                const candidate = strategy.fn(analysis);
+                const key = JSON.stringify(candidate);
+                
+                if(!storedData.generated.some(g => JSON.stringify(g.numbers) === key) && 
+                   !storedData.history.some(h => JSON.stringify(h) === key)) {
+                    newCombinations.push({
+                        numbers: candidate,
+                        timestamp: Date.now(),
+                        strategy: strategy.name
+                    });
+                }
+            }
+
+            // Add new sets to the beginning of the array
+            storedData.generated = [...newCombinations, ...storedData.generated];
+            
+            localStorage.setItem('lotteryData', JSON.stringify(storedData));
+            initializeCounts();
+            displayHistory();
+            displayNewGenerated();
+            document.getElementById('generatedResults').style.display = 'block';
+        }
+
+        // Generation strategies
+        function hotMainStrategy(analysis) {
+            const hotMains = Object.entries(analysis.main).sort((a,b) => b[1]-a[1]).slice(0,5).map(n => +n[0]);
+            const special = Math.floor(Math.random() * 10) + 1;
+            return [randomSelect(hotMains, 5), special];
+        }
+
+        function balancedStrategy(analysis) {
+            const mains = balancedSelection(analysis.main, 35, 5);
+            const specials = balancedSelection(analysis.special, 10, 1);
+            return [mains, specials[0]];
+        }
+
+        function coOccurrenceStrategy(analysis) {
+            const pairs = Object.entries(analysis.coOccurrence).flatMap(([main, specs]) => 
+                Object.entries(specs).map(([spec, count]) => ({ main: +main, spec: +spec, count }))
+            ).sort((a,b) => b.count - a.count);
+            
+            const selected = pairs[Math.floor(Math.random() * Math.min(10, pairs.length))];
+            return [
+                [selected.main, ...randomSelect(range(1,35).filter(n => n !== selected.main),4)],
+                selected.spec
+            ];
+        }
+
+        function coldSpecialStrategy(analysis) {
+            const coldSpecials = range(1,10).filter(n => !analysis.special[n]);
+            return [randomSelect(range(1,35),5), coldSpecials.length ? coldSpecials[0] : Math.floor(Math.random()*10)+1];
+        }
+
+        function randomMixStrategy() {
+            return [randomSelect(range(1,35),5), Math.floor(Math.random()*10)+1];
+        }
+
+        // Helper functions
+        function randomSelect(arr, n) {
+            return [...arr].sort(() => Math.random() - 0.5).slice(0,n).sort((a,b) => a-b);
+        }
+
+        function balancedSelection(freq, max, count) {
+            const allNumbers = range(1,max);
+            const hot = Object.entries(freq).sort((a,b) => b[1]-a[1]).map(n => +n[0]);
+            const cold = allNumbers.filter(n => !freq[n]);
+            return [...randomSelect(hot, count-1), ...randomSelect(cold,1)].sort((a,b) => a-b);
+        }
+
+        function range(start, end) {
+            return Array.from({length: end-start+1}, (_,i) => i+start);
+        }
+
+        // Display functions
+        function displayHistory() {
+            const panel = document.getElementById('historyPanel');
+            panel.innerHTML = storedData.history
+                .map((set, idx) => `
+                    <div class="set-display">
+                        Set ${idx + 1}: ${set[0].join(', ')} | Special: ${set[1]}
+                    </div>
+                `).join('');
+        }
+
+        function displayNewGenerated() {
+            const container = document.getElementById('generatedResults');
+            container.innerHTML = storedData.generated
+                .slice(0, 5)
+                .map((set, idx) => `
+                    <div class="set-display">
+                        ${set.numbers[0].join(', ')} | Special: ${set.numbers[1]}
+                        <div class="strategy-tag">Strategy: ${set.strategy}</div>
+                    </div>
+                `).join('');
+        }
+
+        function displayAllGenerated() {
+            const container = document.getElementById('generatedResults');
+            container.innerHTML = storedData.generated
+                .map((set, idx) => `
+                    <div class="set-display">
+                        ${set.numbers[0].join(', ')} | Special: ${set.numbers[1]}
+                        <div class="strategy-tag">
+                            Strategy: ${set.strategy} | 
+                            Generated: ${new Date(set.timestamp).toLocaleString()}
+                        </div>
+                    </div>
+                `).join('');
+        }
+
+        function toggleHistory() {
+            const panel = document.getElementById('historyPanel');
+            panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
+        }
+
+        function toggleGenerated() {
+            const panel = document.getElementById('generatedResults');
+            if(panel.style.display === 'none') {
+                displayAllGenerated();
+                panel.style.display = 'block';
+            } else {
+                panel.style.display = 'none';
+            }
+        }
+
+        function resetHistory() {
+            if(confirm("Reset all historical data?")) {
+                storedData.history = [];
+                localStorage.setItem('lotteryData', JSON.stringify(storedData));
+                initializeCounts();
+                displayHistory();
+            }
+        }
+
+        function resetGenerated() {
+            if(confirm("Reset all generated sets?")) {
+                storedData.generated = [];
+                localStorage.setItem('lotteryData', JSON.stringify(storedData));
+                initializeCounts();
+                displayNewGenerated();
+            }
+        }
+
+        // Initial setup
+        initializeCounts();
+        addSetInput();
+        displayHistory();
+        if(storedData.generated.length > 0) displayNewGenerated();
+    </script>
+</body>
+</html>
