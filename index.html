@@ -36,11 +36,13 @@
             color: white;
         }
         .number-input {
-            width: 50px;
-            margin: 0 5px;
+            width: 70px;
+            margin: 0 3px;
             padding: 5px;
+            font-size: 0.9em;
         }
         .special-input {
+            width: 80px;
             background: #fff3cd;
         }
         .set-input {
@@ -48,6 +50,13 @@
             padding: 10px;
             border: 1px solid #ddd;
             border-radius: 5px;
+            display: flex;
+            align-items: center;
+            gap: 5px;
+            flex-wrap: wrap;
+        }
+        .set-input > strong {
+            min-width: 80px;
         }
         .history-panel, .generated-panel {
             margin: 15px 0;
@@ -94,7 +103,7 @@
 </head>
 <body>
     <div class="container">
-        <h2>Advanced Lottery Generator</h2>
+        <h2>Lotto Plus Number Generator</h2>
         <div id="errorMessage" class="error"></div>
         
         <div class="stats">
@@ -145,11 +154,13 @@
             const setDiv = document.createElement('div');
             setDiv.className = 'set-input';
             setDiv.innerHTML = `
-                Set ${container.children.length + 1}:
+                <strong>Set ${container.children.length + 1}:</strong>
                 ${Array.from({length: 5}, (_, i) => 
-                    `<input type="number" min="1" max="35" class="number-input" placeholder="Main ${i+1}">`
+                    `<input type="number" min="1" max="35" 
+                     class="number-input" placeholder="M${i+1}">`
                 ).join('')}
-                <input type="number" min="1" max="10" class="number-input special-input" placeholder="Special">
+                <input type="number" min="1" max="10" 
+                     class="number-input special-input" placeholder="PB">
                 <button onclick="this.parentElement.remove()">❌</button>
             `;
             container.appendChild(setDiv);
@@ -170,7 +181,7 @@
         }
 
         function validateSpecialNumber(number) {
-            if(number < 1 || number > 10) return "Special number must be between 1-10";
+            if(number < 1 || number > 10) return "Powerball must be between 1-10";
             return null;
         }
 
@@ -205,7 +216,7 @@
 
                 const specialNumber = parseInt(specialInput.value);
                 if(isNaN(specialNumber)) {
-                    setErrors.push("Special number is required");
+                    setErrors.push("Powerball is required");
                     specialInput.classList.add('invalid-input');
                 } else {
                     const specialError = validateSpecialNumber(specialNumber);
@@ -277,6 +288,15 @@
             while(newCombinations.length < 5) {
                 const strategy = strategies[newCombinations.length % strategies.length];
                 const candidate = strategy.fn(analysis);
+                
+                // Final validation check
+                if(candidate[0].length !== 5 || 
+                   new Set(candidate[0]).size !== 5 ||
+                   candidate[1] < 1 || 
+                   candidate[1] > 10) {
+                    continue;
+                }
+                
                 const key = JSON.stringify(candidate);
                 
                 if(!storedData.generated.some(g => JSON.stringify(g.numbers) === key) && 
@@ -299,17 +319,28 @@
             document.getElementById('generatedResults').style.display = 'block';
         }
 
-        // Generation strategies
+        // Generation strategies with improved validation
         function hotMainStrategy(analysis) {
-            const hotMains = Object.entries(analysis.main).sort((a,b) => b[1]-a[1]).slice(0,5).map(n => +n[0]);
-            const special = Math.floor(Math.random() * 10) + 1;
-            return [randomSelect(hotMains, 5), special];
+            let hotMains = Object.entries(analysis.main)
+                              .sort((a,b) => b[1]-a[1])
+                              .slice(0,5)
+                              .map(n => +n[0]);
+            
+            // Ensure 5 unique numbers
+            if(hotMains.length < 5) {
+                const pool = range(1,35).filter(n => !hotMains.includes(n));
+                const fill = randomSelect(pool, 5 - hotMains.length);
+                hotMains = [...hotMains, ...fill];
+            }
+            
+            return [randomSelect(hotMains, 5), Math.floor(Math.random() * 10) + 1];
         }
 
         function balancedStrategy(analysis) {
             const mains = balancedSelection(analysis.main, 35, 5);
-            const specials = balancedSelection(analysis.special, 10, 1);
-            return [mains, specials[0]];
+            let specials = balancedSelection(analysis.special, 10, 1);
+            
+            return [mains, specials[0] || Math.floor(Math.random() * 10) + 1];
         }
 
         function coOccurrenceStrategy(analysis) {
@@ -317,7 +348,7 @@
                 Object.entries(specs).map(([spec, count]) => ({ main: +main, spec: +spec, count }))
             ).sort((a,b) => b.count - a.count);
             
-            const selected = pairs[Math.floor(Math.random() * Math.min(10, pairs.length))];
+            const selected = pairs[Math.floor(Math.random() * Math.min(10, pairs.length))] || { main: 1, spec: 1 };
             return [
                 [selected.main, ...randomSelect(range(1,35).filter(n => n !== selected.main),4)],
                 selected.spec
@@ -326,23 +357,40 @@
 
         function coldSpecialStrategy(analysis) {
             const coldSpecials = range(1,10).filter(n => !analysis.special[n]);
-            return [randomSelect(range(1,35),5), coldSpecials.length ? coldSpecials[0] : Math.floor(Math.random()*10)+1];
+            const special = coldSpecials.length ? coldSpecials[0] : Math.floor(Math.random()*10)+1;
+            return [randomSelect(range(1,35),5), special];
         }
 
         function randomMixStrategy() {
             return [randomSelect(range(1,35),5), Math.floor(Math.random()*10)+1];
         }
 
-        // Helper functions
+        // Helper functions with improved validation
         function randomSelect(arr, n) {
-            return [...arr].sort(() => Math.random() - 0.5).slice(0,n).sort((a,b) => a-b);
+            const uniqueArr = [...new Set(arr)];
+            return [...uniqueArr].sort(() => Math.random() - 0.5)
+                           .slice(0,n)
+                           .sort((a,b) => a-b);
         }
 
         function balancedSelection(freq, max, count) {
-            const allNumbers = range(1,max);
+            const allNumbers = range(1, max);
             const hot = Object.entries(freq).sort((a,b) => b[1]-a[1]).map(n => +n[0]);
             const cold = allNumbers.filter(n => !freq[n]);
-            return [...randomSelect(hot, count-1), ...randomSelect(cold,1)].sort((a,b) => a-b);
+            
+            let selected = [
+                ...randomSelect(hot, Math.min(count-1, hot.length)),
+                ...randomSelect(cold, Math.max(1, count - hot.length))
+            ];
+            
+            // Fill remaining with random numbers if needed
+            if(selected.length < count) {
+                const remaining = count - selected.length;
+                const pool = allNumbers.filter(n => !selected.includes(n));
+                selected = [...selected, ...randomSelect(pool, remaining)];
+            }
+            
+            return selected.slice(0, count).sort((a,b) => a-b);
         }
 
         function range(start, end) {
@@ -355,7 +403,7 @@
             panel.innerHTML = storedData.history
                 .map((set, idx) => `
                     <div class="set-display">
-                        Set ${idx + 1}: ${set[0].join(', ')} | Special: ${set[1]}
+                        Set ${idx + 1}: ${set[0].join(', ')} | PB: ${set[1]}
                     </div>
                 `).join('');
         }
@@ -366,7 +414,7 @@
                 .slice(0, 5)
                 .map((set, idx) => `
                     <div class="set-display">
-                        ${set.numbers[0].join(', ')} | Special: ${set.numbers[1]}
+                        ${set.numbers[0].join(', ')} | PB: ${set.numbers[1]}
                         <div class="strategy-tag">Strategy: ${set.strategy}</div>
                     </div>
                 `).join('');
@@ -377,7 +425,7 @@
             container.innerHTML = storedData.generated
                 .map((set, idx) => `
                     <div class="set-display">
-                        ${set.numbers[0].join(', ')} | Special: ${set.numbers[1]}
+                        ${set.numbers[0].join(', ')} | PB: ${set.numbers[1]}
                         <div class="strategy-tag">
                             Strategy: ${set.strategy} | 
                             Generated: ${new Date(set.timestamp).toLocaleString()}
@@ -386,6 +434,7 @@
                 `).join('');
         }
 
+        // UI controls
         function toggleHistory() {
             const panel = document.getElementById('historyPanel');
             panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
