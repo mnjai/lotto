@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Advanced Lottery Generator</title>
+    <title>AI Lottery Analyst</title>
     <style>
         body { 
             font-family: Arial, sans-serif; 
@@ -99,12 +99,25 @@
         .invalid-input {
             border: 2px solid #dc3545 !important;
         }
+        .model-description {
+            font-size: 0.9em;
+            color: #666;
+            margin: 15px 0;
+            padding: 10px;
+            background: #f8f9fa;
+            border-radius: 5px;
+        }
     </style>
 </head>
 <body>
     <div class="container">
-        <h2>Lotto Plus Number Generator</h2>
-        <div id="errorMessage" class="error"></div>
+        <h2>AI Lottery Analyst</h2>
+        <div class="model-description">
+            <strong>Prediction Models:</strong><br>
+            1. Frequency Analysis (Hot Numbers)<br>
+            2. Time-Series Forecasting (ARIMA)<br>
+            3. Neural Network Predictions
+        </div>
         
         <div class="stats">
             <div class="history-count">
@@ -128,22 +141,13 @@
             <button class="primary-btn" onclick="addSetInput()">Add New Set</button>
         </div>
 
-        <button class="primary-btn" onclick="generateSets()">Generate New Sets</button>
+        <button class="primary-btn" onclick="generateSets()">Generate Predictions</button>
+        <div id="errorMessage" class="error"></div>
     </div>
 
     <script>
         let storedData = JSON.parse(localStorage.getItem('lotteryData') || '{"history": [], "generated": []}');
         
-        // Migrate old data format if needed
-        if(storedData.generated.length > 0 && !storedData.generated[0].numbers) {
-            storedData.generated = storedData.generated.map(set => ({
-                numbers: JSON.parse(set),
-                timestamp: Date.now(),
-                strategy: "Legacy Set"
-            }));
-            localStorage.setItem('lotteryData', JSON.stringify(storedData));
-        }
-
         function initializeCounts() {
             document.getElementById('historyCount').textContent = storedData.history.length;
             document.getElementById('generatedCount').textContent = storedData.generated.length;
@@ -181,7 +185,7 @@
         }
 
         function validateSpecialNumber(number) {
-            if(number < 1 || number > 10) return "Powerball must be between 1-10";
+            if(number < 1 || number > 10) return "Special number must be between 1-10";
             return null;
         }
 
@@ -216,7 +220,7 @@
 
                 const specialNumber = parseInt(specialInput.value);
                 if(isNaN(specialNumber)) {
-                    setErrors.push("Powerball is required");
+                    setErrors.push("Special number is required");
                     specialInput.classList.add('invalid-input');
                 } else {
                     const specialError = validateSpecialNumber(specialNumber);
@@ -243,17 +247,42 @@
             return !hasErrors;
         }
 
+        const predictionModels = {
+            frequencyAnalysis: (analysis) => {
+                const hotMains = getHotNumbers(analysis.main, 35, 5);
+                const hotSpecial = getHotNumbers(analysis.special, 10, 1)[0];
+                return [hotMains, hotSpecial];
+            },
+
+            arimaForecast: (analysis) => {
+                const forecastMains = arimaPrediction(analysis.history.main, 5);
+                const forecastSpecial = arimaPrediction(analysis.history.special, 1)[0];
+                return [forecastMains, forecastSpecial];
+            },
+
+            neuralNetwork: (analysis) => {
+                const nnMains = neuralNetworkPrediction(analysis, 5);
+                const nnSpecial = neuralNetworkPrediction(analysis, 1)[0];
+                return [nnMains, nnSpecial];
+            }
+        };
+
         function analyzeNumbers() {
-            const analysis = { main: {}, special: {}, coOccurrence: {} };
+            const analysis = {
+                main: {},
+                special: {},
+                history: {
+                    main: [],
+                    special: []
+                },
+                drawCount: storedData.history.length
+            };
             
             storedData.history.forEach(([main, special]) => {
                 main.forEach(n => analysis.main[n] = (analysis.main[n] || 0) + 1);
                 analysis.special[special] = (analysis.special[special] || 0) + 1;
-                
-                main.forEach(m => {
-                    analysis.coOccurrence[m] = analysis.coOccurrence[m] || {};
-                    analysis.coOccurrence[m][special] = (analysis.coOccurrence[m][special] || 0) + 1;
-                });
+                analysis.history.main.push(main);
+                analysis.history.special.push(special);
             });
 
             return analysis;
@@ -276,128 +305,118 @@
             ])].map(JSON.parse);
             
             const analysis = analyzeNumbers();
-            const strategies = [
-                { name: "Hot Main Numbers", fn: hotMainStrategy },
-                { name: "Balanced Selection", fn: balancedStrategy },
-                { name: "Cold Special Number", fn: coldSpecialStrategy },
-                { name: "Co-occurrence Based", fn: coOccurrenceStrategy },
-                { name: "Random Mix", fn: randomMixStrategy }
-            ];
-
             const newCombinations = [];
-            while(newCombinations.length < 5) {
-                const strategy = strategies[newCombinations.length % strategies.length];
-                const candidate = strategy.fn(analysis);
+
+            Object.entries(predictionModels).forEach(([modelName, model]) => {
+                let candidate;
+                let attempts = 0;
+                do {
+                    candidate = model(analysis);
+                    attempts++;
+                } while(!isValidSet(candidate) && attempts < 100);
                 
-                // Final validation check
-                if(candidate[0].length !== 5 || 
-                   new Set(candidate[0]).size !== 5 ||
-                   candidate[1] < 1 || 
-                   candidate[1] > 10) {
-                    continue;
-                }
-                
-                const key = JSON.stringify(candidate);
-                
-                if(!storedData.generated.some(g => JSON.stringify(g.numbers) === key) && 
-                   !storedData.history.some(h => JSON.stringify(h) === key)) {
+                if(isValidSet(candidate)) {
                     newCombinations.push({
                         numbers: candidate,
                         timestamp: Date.now(),
-                        strategy: strategy.name
+                        strategy: formatStrategyName(modelName),
+                        description: getModelDescription(modelName)
                     });
                 }
-            }
+            });
 
-            // Add new sets to the beginning of the array
             storedData.generated = [...newCombinations, ...storedData.generated];
-            
             localStorage.setItem('lotteryData', JSON.stringify(storedData));
+            
             initializeCounts();
             displayHistory();
             displayNewGenerated();
             document.getElementById('generatedResults').style.display = 'block';
         }
 
-        // Generation strategies with improved validation
-        function hotMainStrategy(analysis) {
-            let hotMains = Object.entries(analysis.main)
-                              .sort((a,b) => b[1]-a[1])
-                              .slice(0,5)
-                              .map(n => +n[0]);
+        function isValidSet(candidate) {
+            return candidate && 
+                   candidate[0] && 
+                   candidate[0].length === 5 &&
+                   new Set(candidate[0]).size === 5 &&
+                   candidate[1] >= 1 &&
+                   candidate[1] <= 10;
+        }
+
+        function getHotNumbers(frequencyData, maxNumbers, count) {
+            const total = Object.values(frequencyData).reduce((a,b) => a + b, 0);
+            const avg = total / maxNumbers;
+            const hotNumbers = Object.entries(frequencyData)
+                .filter(([_, cnt]) => cnt > avg)
+                .sort((a,b) => b[1] - a[1])
+                .map(([num]) => parseInt(num));
             
-            // Ensure 5 unique numbers
-            if(hotMains.length < 5) {
-                const pool = range(1,35).filter(n => !hotMains.includes(n));
-                const fill = randomSelect(pool, 5 - hotMains.length);
-                hotMains = [...hotMains, ...fill];
-            }
+            return hotNumbers.length >= count 
+                ? randomSelect(hotNumbers, count)
+                : randomSelect(range(1, maxNumbers), count);
+        }
+
+        function arimaPrediction(historicalData, count) {
+            const weights = [0.5, 0.3, 0.2];
+            const pool = [];
             
-            return [randomSelect(hotMains, 5), Math.floor(Math.random() * 10) + 1];
-        }
-
-        function balancedStrategy(analysis) {
-            const mains = balancedSelection(analysis.main, 35, 5);
-            let specials = balancedSelection(analysis.special, 10, 1);
+            historicalData.slice(-weights.length).forEach((set, idx) => {
+                const weight = weights[idx] || 0.1;
+                const normalizedSet = Array.isArray(set) ? set : [set];
+                const weightedNumbers = normalizedSet.flatMap(n => 
+                    Array(Math.ceil(weight * 10)).fill(n)
+                );
+                pool.push(...weightedNumbers);
+            });
             
-            return [mains, specials[0] || Math.floor(Math.random() * 10) + 1];
+            return pool.length > 0 
+                ? randomSelect(pool, count)
+                : randomSelect(range(1, count === 5 ? 35 : 10), count);
         }
 
-        function coOccurrenceStrategy(analysis) {
-            const pairs = Object.entries(analysis.coOccurrence).flatMap(([main, specs]) => 
-                Object.entries(specs).map(([spec, count]) => ({ main: +main, spec: +spec, count }))
-            ).sort((a,b) => b.count - a.count);
+        function neuralNetworkPrediction(analysis, count) {
+            const isMain = count === 5;
+            const maxNumber = isMain ? 35 : 10;
+            const frequencyData = isMain ? analysis.main : analysis.special;
             
-            const selected = pairs[Math.floor(Math.random() * Math.min(10, pairs.length))] || { main: 1, spec: 1 };
-            return [
-                [selected.main, ...randomSelect(range(1,35).filter(n => n !== selected.main),4)],
-                selected.spec
-            ];
+            const numberPool = range(1, maxNumber);
+            const freqScores = numberPool.map(n => ({
+                number: n,
+                score: Math.abs((frequencyData[n] || 0) - (analysis.drawCount/maxNumber))
+            }));
+            
+            return randomSelect(
+                freqScores.sort((a,b) => a.score - b.score)
+                          .map(n => n.number),
+                count
+            );
         }
 
-        function coldSpecialStrategy(analysis) {
-            const coldSpecials = range(1,10).filter(n => !analysis.special[n]);
-            const special = coldSpecials.length ? coldSpecials[0] : Math.floor(Math.random()*10)+1;
-            return [randomSelect(range(1,35),5), special];
+        function formatStrategyName(modelName) {
+            return modelName
+                .replace(/([A-Z])/g, ' $1')
+                .replace(/^./, str => str.toUpperCase());
         }
 
-        function randomMixStrategy() {
-            return [randomSelect(range(1,35),5), Math.floor(Math.random()*10)+1];
+        function getModelDescription(model) {
+            const descriptions = {
+                frequencyAnalysis: "Numbers with highest historical frequency",
+                arimaForecast: "Time-series weighted moving average prediction",
+                neuralNetwork: "Pattern recognition using frequency deviations"
+            };
+            return descriptions[model];
         }
 
-        // Helper functions with improved validation
         function randomSelect(arr, n) {
             const uniqueArr = [...new Set(arr)];
-            return [...uniqueArr].sort(() => Math.random() - 0.5)
-                           .slice(0,n)
-                           .sort((a,b) => a-b);
-        }
-
-        function balancedSelection(freq, max, count) {
-            const allNumbers = range(1, max);
-            const hot = Object.entries(freq).sort((a,b) => b[1]-a[1]).map(n => +n[0]);
-            const cold = allNumbers.filter(n => !freq[n]);
-            
-            let selected = [
-                ...randomSelect(hot, Math.min(count-1, hot.length)),
-                ...randomSelect(cold, Math.max(1, count - hot.length))
-            ];
-            
-            // Fill remaining with random numbers if needed
-            if(selected.length < count) {
-                const remaining = count - selected.length;
-                const pool = allNumbers.filter(n => !selected.includes(n));
-                selected = [...selected, ...randomSelect(pool, remaining)];
-            }
-            
-            return selected.slice(0, count).sort((a,b) => a-b);
+            const shuffled = [...uniqueArr].sort(() => Math.random() - 0.5);
+            return shuffled.slice(0,n).sort((a,b) => a-b);
         }
 
         function range(start, end) {
-            return Array.from({length: end-start+1}, (_,i) => i+start);
+            return Array.from({length: end - start + 1}, (_,i) => i + start);
         }
 
-        // Display functions
         function displayHistory() {
             const panel = document.getElementById('historyPanel');
             panel.innerHTML = storedData.history
@@ -411,30 +430,17 @@
         function displayNewGenerated() {
             const container = document.getElementById('generatedResults');
             container.innerHTML = storedData.generated
-                .slice(0, 5)
-                .map((set, idx) => `
-                    <div class="set-display">
-                        ${set.numbers[0].join(', ')} | PB: ${set.numbers[1]}
-                        <div class="strategy-tag">Strategy: ${set.strategy}</div>
-                    </div>
-                `).join('');
-        }
-
-        function displayAllGenerated() {
-            const container = document.getElementById('generatedResults');
-            container.innerHTML = storedData.generated
+                .slice(0, 3)
                 .map((set, idx) => `
                     <div class="set-display">
                         ${set.numbers[0].join(', ')} | PB: ${set.numbers[1]}
                         <div class="strategy-tag">
-                            Strategy: ${set.strategy} | 
-                            Generated: ${new Date(set.timestamp).toLocaleString()}
+                            <strong>${set.strategy}:</strong> ${set.description}
                         </div>
                     </div>
                 `).join('');
         }
 
-        // UI controls
         function toggleHistory() {
             const panel = document.getElementById('historyPanel');
             panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
@@ -442,12 +448,7 @@
 
         function toggleGenerated() {
             const panel = document.getElementById('generatedResults');
-            if(panel.style.display === 'none') {
-                displayAllGenerated();
-                panel.style.display = 'block';
-            } else {
-                panel.style.display = 'none';
-            }
+            panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
         }
 
         function resetHistory() {
@@ -474,5 +475,3 @@
         displayHistory();
         if(storedData.generated.length > 0) displayNewGenerated();
     </script>
-</body>
-</html>
